@@ -50,11 +50,11 @@ class LDABase:
     def fit(self, verbose: bool = False, early_stop: bool = True):
         raise NotImplementedError
 
-    def show_logs(self):
+    def plot_logs(self):
         raise NotImplementedError
 
     def show_topics(self, top_words: int):
         raise NotImplementedError
 
-    def show_topic(self, document_num: int):
+    def show_doc_topic(self, document_num: int):
         raise NotImplementedError

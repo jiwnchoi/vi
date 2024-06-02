@@ -1,3 +1,4 @@
+from tqdm import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import dirichlet, poisson
@@ -27,7 +28,7 @@ class LDAGibbs(LDABase):
 
     def fit(self, verbose: bool = False, early_stop: bool = True):
         self.log_likelihoods = []
-        for iteration in range(self.n_iter):
+        for iteration in tqdm(range(self.n_iter)):
             # (1) Update z
             sample_z = []
             for n in range(self.n_docs):
@@ -81,7 +82,7 @@ class LDAGibbs(LDABase):
                     print(f"Gibbs sampler converged after {iteration} iterations.")
                     break
 
-    def show_logs(self):
+    def plot_logs(self):
         plt.figure(figsize=(12, 6))
         plt.plot(self.log_likelihoods)
         plt.xlabel("Iteration")
@@ -95,7 +96,7 @@ class LDAGibbs(LDABase):
             top_words_k = self.vocabs[top_word_indices]
             print(f"Topic {k+1}: {', '.join(top_words_k)}")
 
-    def show_topic(self, document_num: int):
+    def show_doc_topic(self, document_num: int):
         probable_topic = self.z[document_num] + 1
         document = self.docs[document_num]
         print(f"Document: {document}")
