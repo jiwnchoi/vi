@@ -24,15 +24,15 @@ class LDAVI(LDABase):
         tolerance=1e-3,
     ) -> None:
         super().__init__(count_path, doc_path, vocab_path, n_topics, n_iter, tolerance)
-        self.alpha = np.full(n_topics, 0.1)
-        self.beta = 0.01
+        self.alpha = np.full(n_topics, 1)
+        self.beta = 1
         self.n_docs, self.n_words = self.matrix.shape
 
-        self.lamb = np.random.gamma(100.0, 1.0 / 100.0, (self.n_topics, self.n_words))
+        self.lamb = np.random.gamma(1, 1, (self.n_topics, self.n_words))
         self.Elogbeta = Edirichlet(self.lamb)
         self.expElogbeta = np.exp(self.Elogbeta)
 
-        self.gamma = np.random.gamma(100.0, 1.0 / 100.0, (self.n_docs, self.n_topics))
+        self.gamma = np.random.gamma(1, 1, (self.n_docs, self.n_topics))
 
         self.p_bar = tqdm(range(self.n_iter))
 
@@ -44,15 +44,14 @@ class LDAVI(LDABase):
             count = self.matrix[d, :]
             Elogtheta_d = Edirichlet(gamma_d)
 
-            for _ in range(self.n_iter):
-                last_gamma = gamma_d.copy()
-                phi = np.exp(Elogtheta_d[:, np.newaxis] + self.Elogbeta)
-                phi /= np.sum(phi, axis=0, keepdims=True)
-                gamma_d = self.alpha + np.dot(count, phi.T)
-                Elogtheta_d = Edirichlet(gamma_d)
+            last_gamma = gamma_d.copy()
+            phi = np.exp(Elogtheta_d[:, np.newaxis] + self.Elogbeta)
+            phi /= np.sum(phi, axis=0, keepdims=True)
+            gamma_d = self.alpha + np.dot(count, phi.T)
+            Elogtheta_d = Edirichlet(gamma_d)
 
-                if np.mean((gamma_d - last_gamma) ** 2) < self.tolerance:
-                    break
+            if np.mean((gamma_d - last_gamma) ** 2) < self.tolerance:
+                break
 
             self.gamma[d, :] = gamma_d
             sstats += np.dot(gamma_d[:, np.newaxis], count[np.newaxis, :])
