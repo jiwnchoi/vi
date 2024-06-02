@@ -44,14 +44,15 @@ class LDAVI(LDABase):
             count = self.matrix[d, :]
             Elogtheta_d = Edirichlet(gamma_d)
 
-            last_gamma = gamma_d.copy()
-            phi = np.exp(Elogtheta_d[:, np.newaxis] + self.Elogbeta)
-            phi /= np.sum(phi, axis=0, keepdims=True)
-            gamma_d = self.alpha + np.dot(count, phi.T)
-            Elogtheta_d = Edirichlet(gamma_d)
+            for _ in range(5):
+                last_gamma = gamma_d.copy()
+                phi = np.exp(Elogtheta_d[:, np.newaxis] + self.Elogbeta)
+                phi /= np.sum(phi, axis=0, keepdims=True)
+                gamma_d = self.alpha + np.dot(count, phi.T)
+                Elogtheta_d = Edirichlet(gamma_d)
 
-            if np.mean((gamma_d - last_gamma) ** 2) < self.tolerance:
-                break
+                if np.mean((gamma_d - last_gamma) ** 2) < self.tolerance:
+                    break
 
             self.gamma[d, :] = gamma_d
             sstats += np.dot(gamma_d[:, np.newaxis], count[np.newaxis, :])
