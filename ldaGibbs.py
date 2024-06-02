@@ -25,10 +25,11 @@ class LDAGibbs(LDABase):
         self.z = np.random.choice(n_topics, size=self.n_docs)
 
         self.log_likelihoods = []
+        self.pbar = tqdm(range(self.n_iter))
 
     def fit(self, verbose: bool = False, early_stop: bool = True):
         self.log_likelihoods = []
-        for iteration in tqdm(range(self.n_iter)):
+        for iteration in self.pbar:
             # (1) Update z
             sample_z = []
             for n in range(self.n_docs):
@@ -69,6 +70,7 @@ class LDAGibbs(LDABase):
                 np.log(self.pi[np.arange(self.n_docs), self.z])
                 + np.sum(self.matrix * np.log(self.lamb[self.z]), axis=1)
             )
+            self.pbar.set_postfix({"log_likelihood": log_likelihood})
             if verbose:
                 print(f"Iteration {iteration}: {log_likelihood}")
             self.log_likelihoods.append(log_likelihood)

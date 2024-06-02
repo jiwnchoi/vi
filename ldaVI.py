@@ -34,6 +34,8 @@ class LDAVI(LDABase):
 
         self.gamma = np.random.gamma(100.0, 1.0 / 100.0, (self.n_docs, self.n_topics))
 
+        self.p_bar = tqdm(range(self.n_iter))
+
     def _e_step(self):
         sstats = np.zeros((self.n_topics, self.n_words))
 
@@ -93,7 +95,7 @@ class LDAVI(LDABase):
     def fit(self, verbose: bool = False, early_stop: bool = True):
         self.elbos = []
 
-        for i in tqdm(range(self.n_iter)):
+        for i in self.p_bar:
             sstats = self._e_step()
             self._m_step(sstats)
             bound = self._compute_bound()
@@ -106,6 +108,7 @@ class LDAVI(LDABase):
             ):
                 break
 
+            self.p_bar.set_postfix({"ELBO": bound})
             if verbose:
                 print(f"Iteration {i+1}/{self.n_iter}: ELBO = {bound}")
 
