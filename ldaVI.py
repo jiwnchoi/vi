@@ -136,15 +136,6 @@ class LDAVI(LDABase):
         print(f"Topic: {probable_topic}")
 
     def infer_topics(self, doc_term_matrix: np.ndarray):
-        """
-        Infer topic distributions for new documents using the trained LDA model.
-
-        Parameters:
-        doc_term_matrix (np.ndarray): Document-term matrix for new documents.
-
-        Returns:
-        np.ndarray: Inferred topic distributions for each document.
-        """
         n_new_docs = doc_term_matrix.shape[0]
         gamma_new = np.random.gamma(100, 0.01, (n_new_docs, self.n_topics))
         expElogtheta_new = np.exp(Edirichlet(gamma_new))
