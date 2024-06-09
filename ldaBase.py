@@ -47,6 +47,23 @@ class LDABase:
         filtered_indices = np.where((word_freqs >= 10) & (word_freqs <= 1000))[0]
         return input_matrix[:, filtered_indices], filtered_indices
 
+    def format_document(self, document: str | list[str]):
+        data = (
+            document.strip()
+            if isinstance(document, str)
+            else [doc.strip() for doc in document]
+        )
+        dat_matrix = np.zeros([len(data), len(self.vocabs)], dtype=int)
+        m = re.compile(r"[^\s|a-z|A-Z]+")
+        for i, document in enumerate(data):
+            doc = m.sub(" ", document)  # 알파벳만 남김
+            words = doc.split()
+            for word in words:
+                if word.lower() in self.vocabs:  # 단어가 vocab에 있을 경우
+                    idx = np.where(self.vocabs == word.lower())[0][0]
+                    dat_matrix[i, idx] += 1
+        return dat_matrix
+
     def fit(self, verbose: bool = False, early_stop: bool = True):
         raise NotImplementedError
 
@@ -57,4 +74,10 @@ class LDABase:
         raise NotImplementedError
 
     def show_doc_topic(self, document_num: int):
+        raise NotImplementedError
+
+    def export_model(self, path: str):
+        raise NotImplementedError
+
+    def load_model(self, path: str):
         raise NotImplementedError

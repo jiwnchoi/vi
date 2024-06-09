@@ -33,29 +33,32 @@ class LDAVI(LDABase):
         self.expElogbeta = np.exp(self.Elogbeta)
 
         self.gamma = np.random.gamma(100, 0.01, (self.n_docs, self.n_topics))
-
-        self.p_bar = tqdm(range(self.n_iter))
+        self.n_iter_gamma = 5
 
     def _e_step(self):
         sstats = np.zeros((self.n_topics, self.n_words))
+        expElogtheta = np.exp(Edirichlet(self.gamma))
 
         for d in range(self.n_docs):
-            gamma_d = self.gamma[d, :]
             count = self.matrix[d, :]
-            Elogtheta_d = Edirichlet(gamma_d)
+            expElogtheta_d = expElogtheta[d, :]
+            phinorm = np.dot(expElogtheta_d, self.expElogbeta) + 1e-100
 
-            for _ in range(5):
-                last_gamma = gamma_d.copy()
-                phi = np.exp(Elogtheta_d[:, np.newaxis] + self.Elogbeta)
-                phi /= np.sum(phi, axis=0, keepdims=True)
-                gamma_d = self.alpha + np.dot(count, phi.T)
-                Elogtheta_d = Edirichlet(gamma_d)
+            for _ in range(self.n_iter_gamma):
+                last_gamma = self.gamma[d, :].copy()
+                self.gamma[d, :] = self.alpha + expElogtheta_d * np.dot(
+                    count / phinorm, self.expElogbeta.T
+                )
 
-                if np.mean((gamma_d - last_gamma) ** 2) < self.tolerance:
+                expElogtheta_d = np.exp(Edirichlet(self.gamma[d, :]))
+                phinorm = np.dot(expElogtheta_d, self.expElogbeta) + 1e-100
+
+                if np.mean(np.abs(self.gamma[d, :] - last_gamma)) < self.tolerance:
                     break
+            # print(sstats.shape, np.outer(expElogtheta_d, count / phinorm).shape)
+            sstats += np.outer(expElogtheta_d, count / phinorm)
 
-            self.gamma[d, :] = gamma_d
-            sstats += np.dot(gamma_d[:, np.newaxis], count[np.newaxis, :])
+        sstats *= self.expElogbeta
 
         return sstats
 
@@ -65,13 +68,10 @@ class LDAVI(LDABase):
         self.expElogbeta = np.exp(self.Elogbeta)
 
     def _compute_bound(self):
-        bound = 0
         Elogtheta = Edirichlet(self.gamma)
+        expElogtheta = np.exp(Elogtheta)
 
-        for d in range(self.n_docs):
-            count = self.matrix[d, :]
-            expElogtheta_d = np.exp(Elogtheta[d, :])
-            bound += np.sum(count * np.log(np.dot(expElogtheta_d, self.expElogbeta)))
+        bound = np.sum(self.matrix * np.log(np.dot(expElogtheta, self.expElogbeta)))
 
         alpha_term = gammaln(np.sum(self.alpha)) - np.sum(gammaln(self.alpha))
         alpha_term += np.sum((self.alpha - 1) * Elogtheta)
@@ -93,22 +93,26 @@ class LDAVI(LDABase):
         return bound
 
     def fit(self, verbose: bool = False, early_stop: bool = True):
+        p_bar = tqdm(range(self.n_iter))
         self.elbos = []
 
-        for i in self.p_bar:
+        for i in p_bar:
             sstats = self._e_step()
             self._m_step(sstats)
-            bound = self._compute_bound()
-            self.elbos.append(bound)
+
+            if i % 1 == 0:
+                bound = self._compute_bound()
+                self.elbos.append(bound)
+                p_bar.set_postfix({"ELBO": bound})
 
             if (
                 early_stop
                 and i > 0
+                and len(self.elbos) > 2
                 and np.abs(self.elbos[-1] - self.elbos[-2]) < self.tolerance
             ):
                 break
 
-            self.p_bar.set_postfix({"ELBO": bound})
             if verbose:
                 print(f"Iteration {i+1}/{self.n_iter}: ELBO = {bound}")
 
@@ -130,3 +134,47 @@ class LDAVI(LDABase):
         document = self.docs[document_num]
         print(f"Document: {document}")
         print(f"Topic: {probable_topic}")
+
+    def infer_topics(self, doc_term_matrix: np.ndarray):
+        """
+        Infer topic distributions for new documents using the trained LDA model.
+
+        Parameters:
+        doc_term_matrix (np.ndarray): Document-term matrix for new documents.
+
+        Returns:
+        np.ndarray: Inferred topic distributions for each document.
+        """
+        n_new_docs = doc_term_matrix.shape[0]
+        gamma_new = np.random.gamma(100, 0.01, (n_new_docs, self.n_topics))
+        expElogtheta_new = np.exp(Edirichlet(gamma_new))
+
+        for d in range(n_new_docs):
+            count = doc_term_matrix[d, :]
+            expElogtheta_d = expElogtheta_new[d, :]
+            phinorm = np.dot(expElogtheta_d, self.expElogbeta) + 1e-100
+
+            for _ in range(self.n_iter_gamma):
+                last_gamma = gamma_new[d, :].copy()
+                gamma_new[d, :] = self.alpha + expElogtheta_d * np.dot(
+                    count / phinorm, self.expElogbeta.T
+                )
+
+                expElogtheta_d = np.exp(Edirichlet(gamma_new[d, :]))
+                phinorm = np.dot(expElogtheta_d, self.expElogbeta) + 1e-100
+
+                if np.mean(np.abs(gamma_new[d, :] - last_gamma)) < self.tolerance:
+                    break
+
+        return np.argmax(gamma_new, axis=1) + 1
+
+    def export_model(self, path: str):
+        np.savez_compressed(path, gamma=self.gamma, lamb=self.lamb, elbos=self.elbos)
+
+    def load_model(self, path: str):
+        npzfile = np.load(path)
+        self.gamma = npzfile["gamma"]
+        self.lamb = npzfile["lamb"]
+        self.elbos = npzfile["elbos"]
+        self.Elogbeta = Edirichlet(self.lamb)
+        self.expElogbeta = np.exp(self.Elogbeta)
