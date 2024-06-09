@@ -24,15 +24,15 @@ class LDAVI(LDABase):
         tolerance=1e-3,
     ) -> None:
         super().__init__(count_path, doc_path, vocab_path, n_topics, n_iter, tolerance)
-        self.alpha = np.full(n_topics, 1)
-        self.beta = 1
+        self.alpha = 0.1
+        self.beta = 0.01
         self.n_docs, self.n_words = self.matrix.shape
 
-        self.lamb = np.random.gamma(1, 1, (self.n_topics, self.n_words))
+        self.lamb = np.random.gamma(100, 0.01, (self.n_topics, self.n_words))
         self.Elogbeta = Edirichlet(self.lamb)
         self.expElogbeta = np.exp(self.Elogbeta)
 
-        self.gamma = np.random.gamma(1, 1, (self.n_docs, self.n_topics))
+        self.gamma = np.random.gamma(100, 0.01, (self.n_docs, self.n_topics))
 
         self.p_bar = tqdm(range(self.n_iter))
 
