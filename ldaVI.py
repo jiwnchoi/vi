@@ -1,8 +1,10 @@
-from tqdm import tqdm
-from matplotlib import pyplot as plt
 import numpy as np
-from ldaBase import LDABase
+from matplotlib import pyplot as plt
+from scipy.stats import dirichlet
 from scipy.special import psi, gammaln
+from tqdm import tqdm
+
+from ldaBase import LDABase
 
 
 def Edirichlet(alpha: np.ndarray) -> np.ndarray:
@@ -24,95 +26,83 @@ class LDAVI(LDABase):
         tolerance=1e-3,
     ) -> None:
         super().__init__(count_path, doc_path, vocab_path, n_topics, n_iter, tolerance)
-        self.alpha = 0.1
-        self.beta = 0.01
-        self.n_docs, self.n_words = self.matrix.shape
 
-        self.lamb = np.random.gamma(100, 0.01, (self.n_topics, self.n_words))
-        self.Elogbeta = Edirichlet(self.lamb)
-        self.expElogbeta = np.exp(self.Elogbeta)
+        self.X = self.matrix
+        self.N, self.V = self.X.shape
+        self.K = n_topics
 
-        self.gamma = np.random.gamma(100, 0.01, (self.n_docs, self.n_topics))
-        self.n_iter_gamma = 5
+        self.phi = np.ones((self.N, self.K)) / self.K
+        self.gamma_init = np.ones(self.K) / self.K
+        self.alpha_init = dirichlet.rvs(np.ones(self.V), size=self.K)
+        self.beta_init = dirichlet.rvs(np.ones(self.V), size=self.K)
+
+        self.alpha = self.alpha_init.copy()
+        self.beta = self.beta_init.copy()
+        self.gamma = self.gamma_init.copy()
 
     def _e_step(self):
-        sstats = np.zeros((self.n_topics, self.n_words))
-        expElogtheta = np.exp(Edirichlet(self.gamma))
+        self.E_log_lambda = psi(self.alpha) - np.log(self.beta)  # (K, V)
+        self.E_log_pi = Edirichlet(self.gamma)  # (K,)
+        self.E_lambda = self.alpha / self.beta  # (K,V)
 
-        for d in range(self.n_docs):
-            count = self.matrix[d, :]
-            expElogtheta_d = expElogtheta[d, :]
-            phinorm = np.dot(expElogtheta_d, self.expElogbeta) + 1e-100
-
-            for _ in range(self.n_iter_gamma):
-                last_gamma = self.gamma[d, :].copy()
-                self.gamma[d, :] = self.alpha + expElogtheta_d * np.dot(
-                    count / phinorm, self.expElogbeta.T
-                )
-
-                expElogtheta_d = np.exp(Edirichlet(self.gamma[d, :]))
-                phinorm = np.dot(expElogtheta_d, self.expElogbeta) + 1e-100
-
-                if np.mean(np.abs(self.gamma[d, :] - last_gamma)) < self.tolerance:
-                    break
-            # print(sstats.shape, np.outer(expElogtheta_d, count / phinorm).shape)
-            sstats += np.outer(expElogtheta_d, count / phinorm)
-
-        sstats *= self.expElogbeta
-
-        return sstats
-
-    def _m_step(self, sstats):
-        self.lamb = self.beta + sstats
-        self.Elogbeta = Edirichlet(self.lamb)
-        self.expElogbeta = np.exp(self.Elogbeta)
-
-    def _compute_bound(self):
-        Elogtheta = Edirichlet(self.gamma)
-        expElogtheta = np.exp(Elogtheta)
-
-        bound = np.sum(self.matrix * np.log(np.dot(expElogtheta, self.expElogbeta)))
-
-        alpha_term = gammaln(np.sum(self.alpha)) - np.sum(gammaln(self.alpha))
-        alpha_term += np.sum((self.alpha - 1) * Elogtheta)
-        gamma_term = gammaln(np.sum(self.gamma, axis=1)) - np.sum(
-            gammaln(self.gamma), axis=1
+        log_phi = (
+            np.dot(self.X, self.E_log_lambda.T)  # (N, K)
+            - np.sum(self.E_lambda, axis=1)  # (K,)
+            + self.E_log_pi  # (K,)
+            # - np.sum(self.gamma_lnx, axis=1, keepdims=True)  # (N,)
         )
-        gamma_term -= np.sum((self.gamma - 1) * Elogtheta, axis=1)
-        bound += np.sum(alpha_term - gamma_term)
 
-        eta = self.beta
-        lamb_term = gammaln(np.sum(eta)) - np.sum(gammaln(eta))
-        lamb_term += np.sum((eta - 1) * self.Elogbeta)
-        lambda_term = gammaln(np.sum(self.lamb, axis=1)) - np.sum(
-            gammaln(self.lamb), axis=1
+        logsumexp = np.max(log_phi, axis=1, keepdims=True) + np.log(
+            np.sum(
+                np.exp(log_phi - np.max(log_phi, axis=1, keepdims=True)),
+                axis=1,
+                keepdims=True,
+            )
         )
-        lambda_term -= np.sum((self.lamb - 1) * self.Elogbeta, axis=1)
-        bound += lamb_term - np.sum(lambda_term)
 
-        return bound
+        self.phi = np.exp(log_phi - logsumexp)  # (N, K)
+
+    def _m_step(self):
+        A = np.dot(self.phi.T, self.X)
+        B = np.sum(self.phi, axis=0)
+
+        self.alpha = self.alpha_init + A
+        self.beta = self.beta_init + B[:, np.newaxis]
+
+        self.gamma = self.gamma_init + B
+
+    def _compute_elbo(self):
+        E_log_p_x = np.sum(
+            np.multiply(self.phi, np.matmul(self.X, self.E_log_lambda.T))
+        ) - np.sum(np.matmul(self.phi, self.E_lambda))
+
+        E_log_p_z = np.sum(np.matmul(self.phi, self.E_log_pi))
+        E_log_q_z = np.sum(np.multiply(self.phi, np.log(self.phi + 1e-100)))
+        return E_log_p_x + E_log_p_z - E_log_q_z
 
     def fit(self, verbose: bool = False, early_stop: bool = True):
         p_bar = tqdm(range(self.n_iter))
         self.elbos = []
 
         for i in p_bar:
-            sstats = self._e_step()
-            self._m_step(sstats)
+            self._e_step()
+            self._m_step()
+            if i == 0 or i == 1:
+                print(self.alpha)
+                print(self.beta)
+                print(self.phi)
 
-            if i % 1 == 0:
-                bound = self._compute_bound()
-                self.elbos.append(bound)
-                p_bar.set_postfix({"ELBO": bound})
+            bound = self._compute_elbo()
+            self.elbos.append(bound)
 
             if (
                 early_stop
                 and i > 0
-                and len(self.elbos) > 2
                 and np.abs(self.elbos[-1] - self.elbos[-2]) < self.tolerance
             ):
                 break
 
+            p_bar.set_postfix({"ELBO": bound})
             if verbose:
                 print(f"Iteration {i+1}/{self.n_iter}: ELBO = {bound}")
 
@@ -126,46 +116,31 @@ class LDAVI(LDABase):
 
     def show_topics(self, top_words: int):
         for k in range(self.n_topics):
-            top_word_indices = np.argsort(self.lamb[k])[-top_words:][::-1]
+            top_word_indices = np.argsort(self.E_lambda[k])[-top_words:][::-1]
             print(f"Topic {k+1}: {', '.join(self.vocabs[top_word_indices])}")
 
     def show_doc_topic(self, document_num: int):
-        probable_topic = np.argmax(self.gamma[document_num]) + 1
-        document = self.docs[document_num]
-        print(f"Document: {document}")
-        print(f"Topic: {probable_topic}")
+        probable_topic = np.argmax(self.phi[document_num]) + 1
+        return probable_topic
 
     def infer_topics(self, doc_term_matrix: np.ndarray):
-        n_new_docs = doc_term_matrix.shape[0]
-        gamma_new = np.random.gamma(100, 0.01, (n_new_docs, self.n_topics))
-        expElogtheta_new = np.exp(Edirichlet(gamma_new))
+        E_log_lambda = psi(self.alpha) - np.log(self.beta)
+        E_log_pi = Edirichlet(self.gamma)
 
-        for d in range(n_new_docs):
-            count = doc_term_matrix[d, :]
-            expElogtheta_d = expElogtheta_new[d, :]
-            phinorm = np.dot(expElogtheta_d, self.expElogbeta) + 1e-100
+        log_phi = (
+            np.dot(doc_term_matrix, E_log_lambda.T)
+            - np.sum(self.alpha / self.beta, axis=1)
+            + E_log_pi
+            # - np.sum(gammaln(doc_term_matrix + 1), axis=1, keepdims=True)
+        )
 
-            for _ in range(self.n_iter_gamma):
-                last_gamma = gamma_new[d, :].copy()
-                gamma_new[d, :] = self.alpha + expElogtheta_d * np.dot(
-                    count / phinorm, self.expElogbeta.T
-                )
+        logsumexp = np.max(log_phi, axis=1, keepdims=True) + np.log(
+            np.sum(
+                np.exp(log_phi - np.max(log_phi, axis=1, keepdims=True)),
+                axis=1,
+                keepdims=True,
+            )
+        )
 
-                expElogtheta_d = np.exp(Edirichlet(gamma_new[d, :]))
-                phinorm = np.dot(expElogtheta_d, self.expElogbeta) + 1e-100
-
-                if np.mean(np.abs(gamma_new[d, :] - last_gamma)) < self.tolerance:
-                    break
-
-        return np.argmax(gamma_new, axis=1) + 1
-
-    def export_model(self, path: str):
-        np.savez_compressed(path, gamma=self.gamma, lamb=self.lamb, elbos=self.elbos)
-
-    def load_model(self, path: str):
-        npzfile = np.load(path)
-        self.gamma = npzfile["gamma"]
-        self.lamb = npzfile["lamb"]
-        self.elbos = npzfile["elbos"]
-        self.Elogbeta = Edirichlet(self.lamb)
-        self.expElogbeta = np.exp(self.Elogbeta)
+        phi = np.exp(log_phi - logsumexp)
+        return np.argmax(phi, axis=1) + 1

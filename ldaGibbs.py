@@ -118,8 +118,7 @@ class LDAGibbs(LDABase):
     def show_doc_topic(self, document_num: int):
         probable_topic = self.z[document_num] + 1
         document = self.docs[document_num]
-        print(f"Document: {document}")
-        print(f"Topic: {probable_topic}")
+        return probable_topic, document
 
     def infer_topics(self, doc_term_matrix: np.ndarray):
         # doc_term_matrix: (n_docs, n_vocabs), new unseen documents
