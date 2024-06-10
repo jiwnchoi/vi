@@ -1,6 +1,5 @@
 import numpy as np
 from matplotlib import pyplot as plt
-from scipy.stats import dirichlet
 from scipy.special import psi, gammaln
 from tqdm import tqdm
 
@@ -26,19 +25,20 @@ class LDAVI(LDABase):
         tolerance=1e-3,
     ) -> None:
         super().__init__(count_path, doc_path, vocab_path, n_topics, n_iter, tolerance)
+        sums = np.sum(self.matrix, axis=1)
+        self.matrix = self.matrix[sums > 0]
 
-        self.X = self.matrix
+        self.X = self.matrix / np.sum(self.matrix, axis=1, keepdims=True) * 10
         self.N, self.V = self.X.shape
         self.K = n_topics
 
-        self.phi = np.ones((self.N, self.K)) / self.K
-        self.gamma_init = np.ones(self.K) / self.K
-        self.alpha_init = dirichlet.rvs(np.ones(self.V), size=self.K)
-        self.beta_init = dirichlet.rvs(np.ones(self.V), size=self.K)
-
-        self.alpha = self.alpha_init.copy()
-        self.beta = self.beta_init.copy()
-        self.gamma = self.gamma_init.copy()
+        self.phi = np.random.dirichlet(np.ones(self.K), size=self.N)
+        self.gamma = np.random.gamma(100.0, 0.01, (self.K))
+        self.alpha = np.abs(np.random.normal(0.1, 0.001, (self.K, self.V)))
+        self.beta = np.abs(np.random.normal(0.1, 0.001, (self.K, self.V)))
+        self.gamma_lnx = gammaln(self.X + 1)
+        for _ in range(5):
+            self._m_step()
 
     def _e_step(self):
         self.E_log_lambda = psi(self.alpha) - np.log(self.beta)  # (K, V)
@@ -49,7 +49,7 @@ class LDAVI(LDABase):
             np.dot(self.X, self.E_log_lambda.T)  # (N, K)
             - np.sum(self.E_lambda, axis=1)  # (K,)
             + self.E_log_pi  # (K,)
-            # - np.sum(self.gamma_lnx, axis=1, keepdims=True)  # (N,)
+            - np.sum(self.gamma_lnx, axis=1, keepdims=True)  # (N,)
         )
 
         logsumexp = np.max(log_phi, axis=1, keepdims=True) + np.log(
@@ -66,10 +66,9 @@ class LDAVI(LDABase):
         A = np.dot(self.phi.T, self.X)
         B = np.sum(self.phi, axis=0)
 
-        self.alpha = self.alpha_init + A
-        self.beta = self.beta_init + B[:, np.newaxis]
-
-        self.gamma = self.gamma_init + B
+        self.alpha = self.alpha + A
+        self.beta = self.beta + B[:, np.newaxis]
+        self.gamma = self.gamma + B
 
     def _compute_elbo(self):
         E_log_p_x = np.sum(
@@ -86,12 +85,8 @@ class LDAVI(LDABase):
 
         for i in p_bar:
             self._e_step()
-            self._m_step()
-            if i == 0 or i == 1:
-                print(self.alpha)
-                print(self.beta)
-                print(self.phi)
-
+            for i in range(5):
+                self._m_step()
             bound = self._compute_elbo()
             self.elbos.append(bound)
 
@@ -124,23 +119,42 @@ class LDAVI(LDABase):
         return probable_topic
 
     def infer_topics(self, doc_term_matrix: np.ndarray):
-        E_log_lambda = psi(self.alpha) - np.log(self.beta)
-        E_log_pi = Edirichlet(self.gamma)
+        for i in range(self.n_iter):
+            E_log_lambda = psi(self.alpha) - np.log(self.beta)
+            E_log_pi = Edirichlet(self.gamma)
 
-        log_phi = (
-            np.dot(doc_term_matrix, E_log_lambda.T)
-            - np.sum(self.alpha / self.beta, axis=1)
-            + E_log_pi
-            # - np.sum(gammaln(doc_term_matrix + 1), axis=1, keepdims=True)
-        )
-
-        logsumexp = np.max(log_phi, axis=1, keepdims=True) + np.log(
-            np.sum(
-                np.exp(log_phi - np.max(log_phi, axis=1, keepdims=True)),
-                axis=1,
-                keepdims=True,
+            log_phi = (
+                np.dot(doc_term_matrix, E_log_lambda.T)
+                - np.sum(self.alpha / self.beta, axis=1)
+                + E_log_pi
+                - np.sum(gammaln(doc_term_matrix + 1), axis=1, keepdims=True)
             )
+
+            logsumexp = np.max(log_phi, axis=1, keepdims=True) + np.log(
+                np.sum(
+                    np.exp(log_phi - np.max(log_phi, axis=1, keepdims=True)),
+                    axis=1,
+                    keepdims=True,
+                )
+            )
+
+            phi = np.exp(log_phi - logsumexp)
+        return np.argmax(phi, axis=1) + 1
+
+    def export_model(self, path: str):
+        np.savez(
+            path,
+            alpha=self.alpha,
+            beta=self.beta,
+            gamma=self.gamma,
+            phi=self.phi,
+            elbos=self.elbos,
         )
 
-        phi = np.exp(log_phi - logsumexp)
-        return np.argmax(phi, axis=1) + 1
+    def load_model(self, path: str):
+        data = np.load(path)
+        self.alpha = data["alpha"]
+        self.beta = data["beta"]
+        self.gamma = data["gamma"]
+        self.phi = data["phi"]
+        self.elbos = data["elbos"]
