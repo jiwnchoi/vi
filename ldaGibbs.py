@@ -19,6 +19,9 @@ class LDAGibbs(LDABase):
         tolerance=1e-3,
     ) -> None:
         super().__init__(count_path, doc_path, vocab_path, n_topics, n_iter, tolerance)
+        sums = np.sum(self.matrix, axis=1)
+        self.matrix = self.matrix[sums > 0]
+
         self.n_docs, self.n_vocabs = self.matrix.shape
         self.alpha = np.full(n_topics, 0.1)
         self.pi = dirichlet.rvs(self.alpha, size=self.n_docs)
@@ -27,6 +30,14 @@ class LDAGibbs(LDABase):
         self.z = np.random.choice(n_topics, size=self.n_docs)
 
         self.log_likelihoods = []
+
+    def get_post_pred_dist(self):
+        log_pi = np.log(self.pi)
+        log_lamb = np.log(self.lamb)
+
+        log_prob = log_pi + np.matmul(self.matrix, log_lamb.T)
+
+        return np.exp(log_prob - logsumexp(log_prob, axis=1, keepdims=True))
 
     def fit(self, verbose: bool = False, early_stop: bool = True):
         p_bar = tqdm(range(self.n_iter))

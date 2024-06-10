@@ -37,7 +37,7 @@ class LDAVI(LDABase):
         self.alpha = np.abs(np.random.normal(0.1, 0.001, (self.K, self.V)))
         self.beta = np.abs(np.random.normal(0.1, 0.001, (self.K, self.V)))
         self.gamma_lnx = gammaln(self.X + 1)
-        for _ in range(5):
+        for _ in range(2):
             self._m_step()
 
     def _e_step(self):
@@ -85,7 +85,7 @@ class LDAVI(LDABase):
 
         for i in p_bar:
             self._e_step()
-            for i in range(5):
+            for i in range(10):
                 self._m_step()
             bound = self._compute_elbo()
             self.elbos.append(bound)
@@ -162,3 +162,6 @@ class LDAVI(LDABase):
         self.E_log_lambda = psi(self.alpha) - np.log(self.beta)
         self.E_log_pi = Edirichlet(self.gamma)
         self.gamma_lnx = gammaln(self.X + 1)
+
+    def get_post_pred_dist(self):
+        return self.phi
