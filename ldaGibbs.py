@@ -121,7 +121,7 @@ class LDAGibbs(LDABase):
         print(f"Document: {document}")
         print(f"Topic: {probable_topic}")
 
-    def inter_topics(self, doc_term_matrix: np.ndarray):
+    def infer_topics(self, doc_term_matrix: np.ndarray):
         # doc_term_matrix: (n_docs, n_vocabs), new unseen documents
         num_docs, vocab_size = doc_term_matrix.shape
         pi_new = dirichlet.rvs(self.alpha, size=num_docs)
