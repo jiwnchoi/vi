@@ -158,3 +158,7 @@ class LDAVI(LDABase):
         self.gamma = data["gamma"]
         self.phi = data["phi"]
         self.elbos = data["elbos"]
+        self.E_lambda = self.alpha / self.beta
+        self.E_log_lambda = psi(self.alpha) - np.log(self.beta)
+        self.E_log_pi = Edirichlet(self.gamma)
+        self.gamma_lnx = gammaln(self.X + 1)
