@@ -139,7 +139,11 @@ class LDAVI(LDABase):
             )
 
             phi = np.exp(log_phi - logsumexp)
-        return np.argmax(phi, axis=1) + 1
+        z = [
+            np.random.choice(self.K, p=phi[i]) + 1
+            for i in range(doc_term_matrix.shape[0])
+        ]
+        return z, phi
 
     def export_model(self, path: str):
         np.savez(

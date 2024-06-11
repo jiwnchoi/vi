@@ -161,4 +161,4 @@ class LDAGibbs(LDABase):
             )
             pi_new = dirichlet.rvs(1 + topic_counts, size=num_docs)
 
-        return z_new + 1
+        return z_new + 1, pi_new
